@@ -7,6 +7,9 @@ import time
 import re
 from threading import Thread
 
+import re
+from urllib.parse import quote
+
 app = Flask(__name__)
 CORS(app)  # Permitir peticiones desde tu frontend
 
@@ -32,6 +35,16 @@ def cleanup_old_files():
 # Iniciar limpieza en segundo plano
 cleanup_thread = Thread(target=cleanup_old_files, daemon=True)
 cleanup_thread.start()
+
+def sanitize_filename(filename):
+    """Limpia el nombre del archivo de caracteres problemáticos"""
+    # Remover caracteres especiales pero mantener espacios, guiones y puntos
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+    # Limitar longitud
+    if len(filename) > 200:
+        name, ext = os.path.splitext(filename)
+        filename = name[:200] + ext
+    return filename
 
 def detect_platform(url):
     """Detecta la plataforma del video"""
@@ -78,32 +91,35 @@ def download_video():
             # TikTok - SIN MARCA DE AGUA
             ydl_opts = {
                 'format': 'best',
-                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
+                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title).100s.%(ext)s'),
                 'quiet': True,
                 'no_warnings': True,
                 'extractor_args': {
                     'tiktok': {
                         'api_hostname': 'api16-normal-c-useast1a.tiktokv.com'
                     }
-                }
+                },
+                'restrictfilenames': True  # Evita caracteres problemáticos
             }
             
         elif platform == 'instagram':
             # Instagram
             ydl_opts = {
                 'format': 'best',
-                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
+                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title).100s.%(ext)s'),
                 'quiet': True,
-                'no_warnings': True
+                'no_warnings': True,
+                'restrictfilenames': True
             }
             
         elif platform == 'twitter':
             # Twitter/X
             ydl_opts = {
                 'format': 'best',
-                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
+                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title).100s.%(ext)s'),
                 'quiet': True,
-                'no_warnings': True
+                'no_warnings': True,
+                'restrictfilenames': True
             }
             
         elif platform == 'youtube':
@@ -126,7 +142,8 @@ def download_video():
                 ydl_opts = {
                     **common_opts,
                     'format': 'bestaudio/best',
-                    'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
+                    'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title).100s.%(ext)s'),
+                    'restrictfilenames': True,
                     'postprocessors': [{
                         'key': 'FFmpegExtractAudio',
                         'preferredcodec': 'mp3',
@@ -149,16 +166,18 @@ def download_video():
                 ydl_opts = {
                     **common_opts,
                     'format': format_string,
-                    'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s')
+                    'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title).100s.%(ext)s'),
+                    'restrictfilenames': True
                 }
         
         elif platform == 'facebook':
             # Facebook
             ydl_opts = {
                 'format': 'best',
-                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
+                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title).100s.%(ext)s'),
                 'quiet': True,
-                'no_warnings': True
+                'no_warnings': True,
+                'restrictfilenames': True
             }
             
         else:
@@ -174,6 +193,15 @@ def download_video():
             # Si es audio de YouTube, cambiar extensión a mp3
             if platform == 'youtube' and format_type == 'audio':
                 filename = filename.rsplit('.', 1)[0] + '.mp3'
+            
+            # Verificar que el archivo existe
+            if not os.path.exists(filename):
+                # Buscar el archivo descargado en la carpeta
+                downloaded_files = [f for f in os.listdir(DOWNLOAD_FOLDER) if f.startswith(unique_id)]
+                if downloaded_files:
+                    filename = os.path.join(DOWNLOAD_FOLDER, downloaded_files[0])
+                else:
+                    raise Exception("El archivo no se descargó correctamente")
             
             video_title = info.get('title', 'video')
             platform_name = platform.capitalize()
@@ -208,13 +236,24 @@ def download_video():
 @app.route('/api/file/<filename>')
 def get_file(filename):
     try:
+        # Sanitizar el nombre del archivo para evitar problemas de seguridad
+        filename = os.path.basename(filename)
         filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+        
+        # Buscar el archivo
+        if not os.path.exists(filepath):
+            # Si no existe con ese nombre exacto, buscar archivos similares
+            for file in os.listdir(DOWNLOAD_FOLDER):
+                if filename in file or file.startswith(filename.split('_')[0]):
+                    filepath = os.path.join(DOWNLOAD_FOLDER, file)
+                    break
+        
         if os.path.exists(filepath):
-            return send_file(filepath, as_attachment=True)
+            return send_file(filepath, as_attachment=True, download_name=filename)
         else:
-            return jsonify({"error": "Archivo no encontrado"}), 404
+            return jsonify({"error": "Archivo no encontrado en el servidor"}), 404
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Error al enviar archivo: {str(e)}"}), 500
 
 @app.route('/api/info', methods=['POST'])
 def get_video_info():
