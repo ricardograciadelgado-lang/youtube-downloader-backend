@@ -53,18 +53,28 @@ def download_video():
         # Generar nombre único para el archivo
         unique_id = str(uuid.uuid4())[:8]
         
-        # Opciones comunes para evitar detección de bot
+        # Opciones comunes mejoradas para evitar detección de bot
         common_opts = {
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
             'nocheckcertificate': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'referer': 'https://www.youtube.com/',
+            'extractor_args': {
+                'youtube': {
+                    'skip': ['hls', 'dash'],
+                    'player_skip': ['configs', 'webpage'],
+                    'player_client': ['android', 'web']
+                }
+            },
             'http_headers': {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'en-us,en;q=0.5',
-                'Sec-Fetch-Mode': 'navigate',
+                'Accept-Encoding': 'gzip, deflate',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
             }
         }
         
@@ -82,21 +92,22 @@ def download_video():
             }
         else:
             # Configurar calidad de video
-            format_string = 'best'
+            format_string = 'best[height<=720]'
             if quality == '1080p':
-                format_string = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
+                format_string = 'best[height<=1080]'
             elif quality == '720p':
-                format_string = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
+                format_string = 'best[height<=720]'
             elif quality == '480p':
-                format_string = 'bestvideo[height<=480]+bestaudio/best[height<=480]'
+                format_string = 'best[height<=480]'
             elif quality == '360p':
-                format_string = 'bestvideo[height<=360]+bestaudio/best[height<=360]'
+                format_string = 'best[height<=360]'
+            elif quality == 'highest':
+                format_string = 'best'
             
             ydl_opts = {
                 **common_opts,
                 'format': format_string,
-                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
-                'merge_output_format': 'mp4'
+                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s')
             }
         
         # Descargar video
@@ -119,9 +130,19 @@ def download_video():
         })
         
     except Exception as e:
+        error_msg = str(e)
+        
+        # Mensajes de error más amigables
+        if 'Sign in' in error_msg or 'bot' in error_msg.lower():
+            error_msg = "YouTube está bloqueando la descarga. Intenta con otro video o espera unos minutos."
+        elif 'Video unavailable' in error_msg:
+            error_msg = "El video no está disponible o es privado."
+        elif 'age' in error_msg.lower():
+            error_msg = "Este video tiene restricción de edad y no puede ser descargado."
+        
         return jsonify({
             "success": False,
-            "error": str(e)
+            "error": error_msg
         }), 500
 
 @app.route('/api/file/<filename>')
@@ -147,7 +168,8 @@ def get_video_info():
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'extract_flat': True
+            'extract_flat': True,
+            'skip_download': True
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
