@@ -53,18 +53,32 @@ def download_video():
         # Generar nombre único para el archivo
         unique_id = str(uuid.uuid4())[:8]
         
+        # Opciones comunes para evitar detección de bot
+        common_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'nocheckcertificate': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'referer': 'https://www.youtube.com/',
+            'http_headers': {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate',
+            }
+        }
+        
         # Configurar opciones de descarga
         if format_type == 'audio':
             ydl_opts = {
+                **common_opts,
                 'format': 'bestaudio/best',
                 'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
-                }],
-                'quiet': True,
-                'no_warnings': True
+                }]
             }
         else:
             # Configurar calidad de video
@@ -79,11 +93,10 @@ def download_video():
                 format_string = 'bestvideo[height<=360]+bestaudio/best[height<=360]'
             
             ydl_opts = {
+                **common_opts,
                 'format': format_string,
                 'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
-                'merge_output_format': 'mp4',
-                'quiet': True,
-                'no_warnings': True
+                'merge_output_format': 'mp4'
             }
         
         # Descargar video
