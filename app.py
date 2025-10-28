@@ -4,6 +4,7 @@ import yt_dlp
 import os
 import uuid
 import time
+import re
 from threading import Thread
 
 app = Flask(__name__)
@@ -32,11 +33,27 @@ def cleanup_old_files():
 cleanup_thread = Thread(target=cleanup_old_files, daemon=True)
 cleanup_thread.start()
 
+def detect_platform(url):
+    """Detecta la plataforma del video"""
+    if 'tiktok.com' in url:
+        return 'tiktok'
+    elif 'instagram.com' in url:
+        return 'instagram'
+    elif 'twitter.com' in url or 'x.com' in url:
+        return 'twitter'
+    elif 'youtube.com' in url or 'youtu.be' in url:
+        return 'youtube'
+    elif 'facebook.com' in url or 'fb.watch' in url:
+        return 'facebook'
+    else:
+        return 'unknown'
+
 @app.route('/')
 def home():
     return jsonify({
-        "message": "Backend de Descargador de YouTube funcionando",
-        "status": "online"
+        "message": "Backend Multi-Plataforma funcionando",
+        "status": "online",
+        "platforms": ["TikTok", "Instagram", "Twitter/X", "YouTube", "Facebook"]
     })
 
 @app.route('/api/download', methods=['POST'])
@@ -50,82 +67,123 @@ def download_video():
         if not url:
             return jsonify({"error": "URL no proporcionada"}), 400
         
+        # Detectar plataforma
+        platform = detect_platform(url)
+        
         # Generar nombre único para el archivo
         unique_id = str(uuid.uuid4())[:8]
         
-        # Opciones comunes mejoradas para evitar detección de bot
-        common_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
-            'nocheckcertificate': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'referer': 'https://www.youtube.com/',
-            'extractor_args': {
-                'youtube': {
-                    'skip': ['hls', 'dash'],
-                    'player_skip': ['configs', 'webpage'],
-                    'player_client': ['android', 'web']
-                }
-            },
-            'http_headers': {
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-us,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1'
-            }
-        }
-        
-        # Configurar opciones de descarga
-        if format_type == 'audio':
+        # Configurar opciones según la plataforma
+        if platform == 'tiktok':
+            # TikTok - SIN MARCA DE AGUA
             ydl_opts = {
-                **common_opts,
-                'format': 'bestaudio/best',
+                'format': 'best',
                 'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                }]
+                'quiet': True,
+                'no_warnings': True,
+                'extractor_args': {
+                    'tiktok': {
+                        'api_hostname': 'api16-normal-c-useast1a.tiktokv.com'
+                    }
+                }
             }
-        else:
-            # Configurar calidad de video
-            format_string = 'best[height<=720]'
-            if quality == '1080p':
-                format_string = 'best[height<=1080]'
-            elif quality == '720p':
-                format_string = 'best[height<=720]'
-            elif quality == '480p':
-                format_string = 'best[height<=480]'
-            elif quality == '360p':
-                format_string = 'best[height<=360]'
-            elif quality == 'highest':
-                format_string = 'best'
             
+        elif platform == 'instagram':
+            # Instagram
             ydl_opts = {
-                **common_opts,
-                'format': format_string,
-                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s')
+                'format': 'best',
+                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
+                'quiet': True,
+                'no_warnings': True
             }
+            
+        elif platform == 'twitter':
+            # Twitter/X
+            ydl_opts = {
+                'format': 'best',
+                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
+                'quiet': True,
+                'no_warnings': True
+            }
+            
+        elif platform == 'youtube':
+            # YouTube (con opciones anti-bot)
+            common_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False,
+                'nocheckcertificate': True,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'extractor_args': {
+                    'youtube': {
+                        'skip': ['hls', 'dash'],
+                        'player_client': ['android', 'web']
+                    }
+                }
+            }
+            
+            if format_type == 'audio':
+                ydl_opts = {
+                    **common_opts,
+                    'format': 'bestaudio/best',
+                    'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '192',
+                    }]
+                }
+            else:
+                format_string = 'best[height<=720]'
+                if quality == '1080p':
+                    format_string = 'best[height<=1080]'
+                elif quality == '720p':
+                    format_string = 'best[height<=720]'
+                elif quality == '480p':
+                    format_string = 'best[height<=480]'
+                elif quality == '360p':
+                    format_string = 'best[height<=360]'
+                elif quality == 'highest':
+                    format_string = 'best'
+                
+                ydl_opts = {
+                    **common_opts,
+                    'format': format_string,
+                    'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s')
+                }
+        
+        elif platform == 'facebook':
+            # Facebook
+            ydl_opts = {
+                'format': 'best',
+                'outtmpl': os.path.join(DOWNLOAD_FOLDER, f'{unique_id}_%(title)s.%(ext)s'),
+                'quiet': True,
+                'no_warnings': True
+            }
+            
+        else:
+            return jsonify({
+                "error": "Plataforma no soportada. Usa: TikTok, Instagram, Twitter/X, YouTube o Facebook"
+            }), 400
         
         # Descargar video
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
             
-            # Si es audio, cambiar extensión a mp3
-            if format_type == 'audio':
+            # Si es audio de YouTube, cambiar extensión a mp3
+            if platform == 'youtube' and format_type == 'audio':
                 filename = filename.rsplit('.', 1)[0] + '.mp3'
             
             video_title = info.get('title', 'video')
+            platform_name = platform.capitalize()
         
         return jsonify({
             "success": True,
-            "message": "Video descargado exitosamente",
+            "message": f"Video de {platform_name} descargado exitosamente",
             "filename": os.path.basename(filename),
             "title": video_title,
+            "platform": platform_name,
             "download_url": f"/api/file/{os.path.basename(filename)}"
         })
         
@@ -134,11 +192,13 @@ def download_video():
         
         # Mensajes de error más amigables
         if 'Sign in' in error_msg or 'bot' in error_msg.lower():
-            error_msg = "YouTube está bloqueando la descarga. Intenta con otro video o espera unos minutos."
-        elif 'Video unavailable' in error_msg:
-            error_msg = "El video no está disponible o es privado."
+            error_msg = "La plataforma está bloqueando la descarga. YouTube puede requerir esperar unos minutos e intentar de nuevo."
+        elif 'Video unavailable' in error_msg or 'not available' in error_msg:
+            error_msg = "El video no está disponible, es privado o fue eliminado."
         elif 'age' in error_msg.lower():
             error_msg = "Este video tiene restricción de edad y no puede ser descargado."
+        elif 'Private video' in error_msg:
+            error_msg = "Este video es privado y no puede ser descargado."
         
         return jsonify({
             "success": False,
@@ -165,10 +225,11 @@ def get_video_info():
         if not url:
             return jsonify({"error": "URL no proporcionada"}), 400
         
+        platform = detect_platform(url)
+        
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'extract_flat': True,
             'skip_download': True
         }
         
@@ -180,7 +241,8 @@ def get_video_info():
             "title": info.get('title'),
             "duration": info.get('duration'),
             "thumbnail": info.get('thumbnail'),
-            "uploader": info.get('uploader')
+            "uploader": info.get('uploader'),
+            "platform": platform.capitalize()
         })
         
     except Exception as e:
